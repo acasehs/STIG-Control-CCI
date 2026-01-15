@@ -18,8 +18,17 @@ The input file can be:
 import json
 import argparse
 import re
+import sys
 from collections import defaultdict
 from pathlib import Path
+
+# tkinter for file dialog (built into Python)
+try:
+    import tkinter as tk
+    from tkinter import filedialog
+    HAS_TKINTER = True
+except ImportError:
+    HAS_TKINTER = False
 
 try:
     import pandas as pd
@@ -42,6 +51,34 @@ except ImportError:
     from openpyxl.chart.series import SeriesLabel
     from openpyxl.utils.dataframe import dataframe_to_rows
     from openpyxl.utils import get_column_letter
+
+
+def open_file_dialog() -> str:
+    """Open a file dialog to select an input file. Returns the selected file path or None."""
+    if not HAS_TKINTER:
+        print("Warning: tkinter not available for file dialog. Use --input to specify file.")
+        return None
+
+    # Create and hide the root window
+    root = tk.Tk()
+    root.withdraw()
+    root.attributes('-topmost', True)  # Bring dialog to front
+
+    # Open file dialog
+    file_path = filedialog.askopenfilename(
+        title="Select Level Data File",
+        filetypes=[
+            ("All Supported", "*.xlsx *.xls *.json *.csv"),
+            ("Excel Files", "*.xlsx *.xls"),
+            ("JSON Files", "*.json"),
+            ("CSV Files", "*.csv"),
+            ("All Files", "*.*")
+        ]
+    )
+
+    root.destroy()
+
+    return file_path if file_path else None
 
 
 # Default level data based on the provided spreadsheet
@@ -567,26 +604,41 @@ def main():
         action='store_true',
         help='Generate detailed CCI sheets for each level'
     )
+    parser.add_argument(
+        '--browse', '-b',
+        action='store_true',
+        help='Open a file dialog to select the input file'
+    )
 
     args = parser.parse_args()
 
     # Get script directory for relative paths
     script_dir = Path(__file__).parent
 
+    # Determine input file (from argument, file dialog, or default)
+    input_file = args.input
+
+    # If --browse flag is set, open file dialog
+    if args.browse and not input_file:
+        print("Opening file selection dialog...")
+        input_file = open_file_dialog()
+        if not input_file:
+            print("No file selected. Using default level data.")
+
     # Load level data
-    if args.input:
-        input_path = Path(args.input)
+    if input_file:
+        input_path = Path(input_file)
         suffix = input_path.suffix.lower()
         if suffix == '.csv':
             level_data = load_level_data_from_csv(str(input_path))
-            print(f"Loaded level data from CSV: {args.input}")
+            print(f"Loaded level data from CSV: {input_file}")
         elif suffix in ['.xlsx', '.xls']:
             level_data = load_level_data_from_excel(str(input_path), args.sheet)
             sheet_info = f" (sheet: {args.sheet})" if args.sheet else " (first sheet)"
-            print(f"Loaded level data from Excel: {args.input}{sheet_info}")
+            print(f"Loaded level data from Excel: {input_file}{sheet_info}")
         else:
             level_data = load_level_data_from_json(str(input_path))
-            print(f"Loaded level data from JSON: {args.input}")
+            print(f"Loaded level data from JSON: {input_file}")
     else:
         level_data = DEFAULT_LEVEL_DATA
         print("Using default level data")
