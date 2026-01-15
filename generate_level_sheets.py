@@ -143,10 +143,18 @@ def load_controls_data(filepath: str) -> dict:
     for control in data:
         control_id = normalize_control_id(control.get('Control Identifier', ''))
         if control_id:
+            # Use Control Text, or fall back to Discussion if text is empty
+            control_text = control.get('Control Text', '') or ''
+            discussion = control.get('Discussion', '') or ''
+
+            # If Control Text is empty, use Discussion as fallback
+            if not control_text.strip() and discussion.strip():
+                control_text = f"[Discussion] {discussion}"
+
             controls_lookup[control_id] = {
                 'name': control.get('Control (or Control Enhancement) Name', ''),
-                'text': control.get('Control Text', ''),
-                'discussion': control.get('Discussion', ''),
+                'text': control_text,
+                'discussion': discussion,
                 'related_controls': control.get('Related Controls', '')
             }
 
