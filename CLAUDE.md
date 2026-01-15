@@ -10,14 +10,16 @@ This repository provides tools for mapping NIST 800-53 security controls to Cont
 
 ```
 STIG-Control-CCI/
-├── CLAUDE.md                           # This file - AI assistant guidance
-├── generate_level_sheets.py            # Main Python script for generating Excel reports
-├── level_data.json                     # Configurable input: control IDs by defense level
-├── r4controls.json                     # NIST 800-53 Rev 4 controls data
-├── r5controls.json                     # NIST 800-53 Rev 5 controls data (primary)
-├── rev4cci.json                        # CCI mappings for Rev 4 controls
-├── rev5cci.json                        # CCI mappings for Rev 5 controls (primary)
-└── STIG_Control_Level_Reference.xlsx   # Generated output (Excel workbook)
+├── CLAUDE.md                                    # This file - AI assistant guidance
+├── generate_level_sheets.py                     # Main Python script for generating Excel reports
+├── level_data.json                              # Configurable input: control IDs by defense level
+├── r4controls.json                              # NIST 800-53 Rev 4 controls data
+├── r5controls.json                              # NIST 800-53 Rev 5 controls data (primary)
+├── rev4cci.json                                 # CCI mappings for Rev 4 controls
+├── rev5cci.json                                 # CCI mappings for Rev 5 controls (primary)
+├── r4_r5_comparison.json                        # Rev 4 to Rev 5 comparison (withdrawn/new controls)
+├── sp800-53r4-to-r5-comparison-workbook.xlsx    # Source comparison workbook from NIST
+└── STIG_Control_Level_Reference.xlsx            # Generated output (Excel workbook)
 ```
 
 ## Data Files
@@ -153,10 +155,24 @@ The generated Excel workbook contains:
    - CCI numbers (comma-separated)
    - CCI count per control
    - Control family
+   - **Note**: Only Rev 5 controls are included in these sheets
 
-3. **Detailed CCI Sheets** (optional, with `--detailed-cci`):
+3. **Rev 4 Only (Withdrawn) Sheet** (if applicable):
+   - Controls that exist in Rev 4 but were withdrawn in Rev 5
+   - Uses Rev 4 reference data for names/descriptions
+   - Includes level, control ID, name, text, CCIs, and note
+   - Highlighted in orange to indicate legacy status
+
+4. **Detailed CCI Sheets** (optional, with `--detailed-cci`):
    - One row per CCI mapping
    - Control ID, Name, CCI Number, CCI Description
+
+### Rev 4 to Rev 5 Comparison
+
+The script uses `r4_r5_comparison.json` to identify withdrawn controls:
+- **90 controls** were withdrawn from Rev 4 (not in Rev 5)
+- **268 controls** are new in Rev 5
+- Comparison data sourced from `sp800-53r4-to-r5-comparison-workbook.xlsx`
 
 ## Common Tasks for AI Assistants
 

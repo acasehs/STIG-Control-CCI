@@ -153,6 +153,19 @@ def load_controls_data(filepath: str) -> dict:
     return controls_lookup
 
 
+def load_comparison_data(script_dir: Path) -> dict:
+    """Load Rev 4 to Rev 5 comparison data if available."""
+    comparison_path = script_dir / 'r4_r5_comparison.json'
+    if comparison_path.exists():
+        with open(comparison_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        return {
+            'withdrawn': set(data.get('withdrawn_rev4_only', [])),
+            'new': set(data.get('new_rev5_only', []))
+        }
+    return {'withdrawn': set(), 'new': set()}
+
+
 def load_cci_data(filepath: str) -> dict:
     """Load CCI mappings from JSON file."""
     with open(filepath, 'r', encoding='utf-8') as f:
@@ -623,6 +636,85 @@ def create_cci_detail_sheet(wb: Workbook, level_name: str, controls: list,
     ws.freeze_panes = 'A2'
 
 
+def create_rev4_only_sheet(wb: Workbook, rev4_controls: dict,
+                           r4_controls_lookup: dict, r4_cci_lookup: dict):
+    """
+    Create a separate sheet for Rev 4-only (withdrawn) controls.
+
+    Args:
+        wb: Workbook to add sheet to
+        rev4_controls: Dict of {level_name: [control_ids]} for Rev 4-only controls
+        r4_controls_lookup: Rev 4 controls data
+        r4_cci_lookup: Rev 4 CCI mappings
+    """
+    ws = wb.create_sheet(title="Rev 4 Only (Withdrawn)")
+
+    # Styles
+    header_fill = PatternFill(start_color="FF6F00", end_color="FF6F00", fill_type="solid")  # Orange
+    header_font = Font(bold=True, color="FFFFFF", size=11)
+    border = Border(
+        left=Side(style='thin'),
+        right=Side(style='thin'),
+        top=Side(style='thin'),
+        bottom=Side(style='thin')
+    )
+
+    # Headers
+    headers = ['Level', 'Control ID', 'Control Name', 'Control Text', 'CCI Numbers', 'CCI Count', 'Note']
+    for col, header in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col, value=header)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+        cell.border = border
+
+    row = 2
+    total_controls = 0
+
+    for level_name, controls in rev4_controls.items():
+        for control_id in controls:
+            normalized_id = normalize_control_id(control_id)
+            if not normalized_id:
+                continue
+
+            control_info = r4_controls_lookup.get(normalized_id, {})
+            ccis = r4_cci_lookup.get(normalized_id, [])
+
+            cci_numbers = ', '.join([c['cci_number'] for c in ccis]) if ccis else 'N/A'
+            cci_count = len(ccis)
+
+            ws.cell(row=row, column=1, value=level_name[:25]).border = border
+            ws.cell(row=row, column=2, value=normalized_id).border = border
+            ws.cell(row=row, column=3, value=control_info.get('name', 'N/A')).border = border
+
+            text_cell = ws.cell(row=row, column=4, value=control_info.get('text', 'N/A')[:500])
+            text_cell.alignment = Alignment(wrap_text=True)
+            text_cell.border = border
+
+            cci_cell = ws.cell(row=row, column=5, value=cci_numbers)
+            cci_cell.alignment = Alignment(wrap_text=True)
+            cci_cell.border = border
+
+            ws.cell(row=row, column=6, value=cci_count).border = border
+            ws.cell(row=row, column=7, value="Withdrawn in Rev 5").border = border
+
+            row += 1
+            total_controls += 1
+
+    # Set column widths
+    ws.column_dimensions['A'].width = 20
+    ws.column_dimensions['B'].width = 12
+    ws.column_dimensions['C'].width = 35
+    ws.column_dimensions['D'].width = 50
+    ws.column_dimensions['E'].width = 40
+    ws.column_dimensions['F'].width = 10
+    ws.column_dimensions['G'].width = 18
+
+    ws.freeze_panes = 'A2'
+
+    return total_controls
+
+
 def main():
     parser = argparse.ArgumentParser(
         description='Generate STIG Control Level Reference Sheets with CCI Mappings'
@@ -740,6 +832,44 @@ def main():
     cci_lookup = load_cci_data(str(cci_path))
     print(f"Loaded CCIs for {len(cci_lookup)} controls")
 
+    # Load Rev 4 to Rev 5 comparison data
+    comparison_data = load_comparison_data(script_dir)
+    withdrawn_controls = comparison_data['withdrawn']
+    if withdrawn_controls:
+        print(f"Loaded comparison data: {len(withdrawn_controls)} Rev 4-only (withdrawn) controls identified")
+
+    # Separate Rev 4-only controls from Rev 5 controls
+    rev5_level_data = {}
+    rev4_only_controls = {}
+
+    for level_name, controls in level_data.items():
+        rev5_controls = []
+        rev4_controls = []
+
+        for ctrl in controls:
+            normalized = normalize_control_id(ctrl)
+            if normalized in withdrawn_controls:
+                rev4_controls.append(normalized)
+            else:
+                rev5_controls.append(normalized)
+
+        rev5_level_data[level_name] = rev5_controls
+        if rev4_controls:
+            rev4_only_controls[level_name] = rev4_controls
+
+    # Load Rev 4 reference data if we have Rev 4-only controls
+    r4_controls_lookup = {}
+    r4_cci_lookup = {}
+    if rev4_only_controls:
+        r4_controls_path = script_dir / 'r4controls.json'
+        r4_cci_path = script_dir / 'rev4cci.json'
+        if r4_controls_path.exists():
+            print(f"Loading Rev 4 controls for withdrawn controls...")
+            r4_controls_lookup = load_controls_data(str(r4_controls_path))
+        if r4_cci_path.exists():
+            print(f"Loading Rev 4 CCI mappings for withdrawn controls...")
+            r4_cci_lookup = load_cci_data(str(r4_cci_path))
+
     # Create workbook
     wb = Workbook()
     # Remove default sheet
@@ -749,16 +879,25 @@ def main():
     all_stats = {}
     level_names = list(level_data.keys())
 
-    # Create individual level sheets
-    print("\nGenerating level sheets...")
-    for level_name, controls in level_data.items():
-        print(f"  Creating sheet for {level_name} ({len(controls)} controls)...")
+    # Create individual level sheets (Rev 5 controls only)
+    print("\nGenerating level sheets (Rev 5 controls)...")
+    for level_name in level_names:
+        controls = rev5_level_data.get(level_name, [])
+        rev4_count = len(rev4_only_controls.get(level_name, []))
+        rev4_note = f" ({rev4_count} Rev 4-only moved to separate sheet)" if rev4_count > 0 else ""
+        print(f"  Creating sheet for {level_name} ({len(controls)} controls){rev4_note}...")
         stats = create_level_sheet(wb, level_name, controls, controls_lookup, cci_lookup)
         all_stats[level_name] = stats
 
         # Create detailed CCI sheet if requested
         if args.detailed_cci:
             create_cci_detail_sheet(wb, level_name, controls, controls_lookup, cci_lookup)
+
+    # Create Rev 4-only sheet if there are withdrawn controls
+    if rev4_only_controls:
+        total_rev4 = sum(len(c) for c in rev4_only_controls.values())
+        print(f"  Creating Rev 4-only sheet ({total_rev4} withdrawn controls)...")
+        create_rev4_only_sheet(wb, rev4_only_controls, r4_controls_lookup, r4_cci_lookup)
 
     # Create summary sheet
     print("Creating summary sheet with charts...")
