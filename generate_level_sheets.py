@@ -605,9 +605,9 @@ def main():
         help='Generate detailed CCI sheets for each level'
     )
     parser.add_argument(
-        '--browse', '-b',
+        '--no-gui',
         action='store_true',
-        help='Open a file dialog to select the input file'
+        help='Skip file dialog and use --input or default data (for CLI/scripted usage)'
     )
 
     args = parser.parse_args()
@@ -618,8 +618,8 @@ def main():
     # Determine input file (from argument, file dialog, or default)
     input_file = args.input
 
-    # If --browse flag is set, open file dialog
-    if args.browse and not input_file:
+    # Open file dialog by default unless --input is provided or --no-gui is set
+    if not input_file and not args.no_gui:
         print("Opening file selection dialog...")
         input_file = open_file_dialog()
         if not input_file:
