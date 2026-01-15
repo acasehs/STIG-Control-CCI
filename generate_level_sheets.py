@@ -490,14 +490,22 @@ def create_summary_sheet(wb: Workbook, all_stats: dict, level_names: list):
 
     # Family Breakdown Table
     family_row_start = row + 2
-    ws.cell(row=family_row_start, column=1, value="Controls by Family Across Levels")
+    ws.cell(row=family_row_start, column=1, value="Controls by Family Across Levels (Rev 5)")
     ws.cell(row=family_row_start, column=1).font = Font(bold=True, size=14)
 
-    # Collect all families
-    all_families = set()
+    # Collect all families, excluding Unknown and families with 0 total
+    all_families_raw = set()
     for stats in all_stats.values():
-        all_families.update(stats.get('families', {}).keys())
-    all_families = sorted(all_families)
+        all_families_raw.update(stats.get('families', {}).keys())
+
+    # Filter out Unknown and families with 0 controls across all levels
+    all_families = []
+    for family in sorted(all_families_raw):
+        if family == "Unknown":
+            continue  # Skip Unknown family
+        total = sum(stats.get('families', {}).get(family, 0) for stats in all_stats.values())
+        if total > 0:
+            all_families.append(family)
 
     # Family table headers
     family_headers = ['Family', 'Family Name'] + [l[:15] for l in level_names] + ['Total']
@@ -551,7 +559,7 @@ def create_summary_sheet(wb: Workbook, all_stats: dict, level_names: list):
 
     # CCI Coverage by Family Table
     cci_row_start = data_row + 2
-    ws.cell(row=cci_row_start, column=1, value="CCI Count by Family Across Levels")
+    ws.cell(row=cci_row_start, column=1, value="CCI Count by Family Across Levels (Rev 5)")
     ws.cell(row=cci_row_start, column=1).font = Font(bold=True, size=14)
 
     cci_header_row = cci_row_start + 1
