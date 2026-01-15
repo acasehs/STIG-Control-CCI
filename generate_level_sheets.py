@@ -343,7 +343,9 @@ def create_level_sheet(wb: Workbook, level_name: str, controls: list,
         'total_controls': 0,
         'total_ccis': 0,
         'families': defaultdict(int),
-        'family_ccis': defaultdict(int)
+        'family_ccis': defaultdict(int),
+        'unknown_controls': [],  # Track controls with Unknown family
+        'not_in_reference': []   # Track controls not found in reference data
     }
 
     # Populate data
@@ -360,6 +362,12 @@ def create_level_sheet(wb: Workbook, level_name: str, controls: list,
         # Join CCI numbers
         cci_numbers = ', '.join([c['cci_number'] for c in ccis]) if ccis else 'N/A'
         cci_count = len(ccis)
+
+        # Track problematic entries
+        if family == "Unknown":
+            stats['unknown_controls'].append(normalized_id)
+        if not control_info:
+            stats['not_in_reference'].append(normalized_id)
 
         # Update stats
         stats['total_controls'] += 1
@@ -765,6 +773,11 @@ def main():
     print("\n" + "="*60)
     print("SUMMARY")
     print("="*60)
+
+    # Collect all problematic entries across levels
+    all_unknown = []
+    all_not_in_ref = []
+
     for level_name in level_names:
         stats = all_stats.get(level_name, {})
         print(f"\n{level_name}:")
@@ -773,6 +786,31 @@ def main():
         families = stats.get('families', {})
         if families:
             print(f"  Families: {', '.join(sorted(families.keys()))}")
+
+        # Collect problematic entries
+        unknown = stats.get('unknown_controls', [])
+        not_in_ref = stats.get('not_in_reference', [])
+        if unknown:
+            all_unknown.extend([(level_name, c) for c in unknown])
+        if not_in_ref:
+            all_not_in_ref.extend([(level_name, c) for c in not_in_ref])
+
+    # Show problematic entries
+    if all_unknown:
+        print("\n" + "-"*60)
+        print(f"WARNING: {len(all_unknown)} entries have 'Unknown' family (invalid format):")
+        for level, ctrl in all_unknown[:15]:
+            print(f"  [{level[:20]}] {ctrl}")
+        if len(all_unknown) > 15:
+            print(f"  ... and {len(all_unknown) - 15} more")
+
+    if all_not_in_ref:
+        print("\n" + "-"*60)
+        print(f"INFO: {len(all_not_in_ref)} controls not found in reference JSON (no name/text):")
+        for level, ctrl in all_not_in_ref[:15]:
+            print(f"  [{level[:20]}] {ctrl}")
+        if len(all_not_in_ref) > 15:
+            print(f"  ... and {len(all_not_in_ref) - 15} more")
 
 
 if __name__ == '__main__':
