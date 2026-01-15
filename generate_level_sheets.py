@@ -554,13 +554,13 @@ def main():
     )
     parser.add_argument(
         '--controls', '-c',
-        default='r5controls.json',
-        help='Path to controls JSON file (default: r5controls.json)'
+        default=None,
+        help='Path to controls JSON file (auto-detects Rev 5, falls back to Rev 4)'
     )
     parser.add_argument(
         '--cci', '-cci',
-        default='rev5cci.json',
-        help='Path to CCI mappings JSON file (default: rev5cci.json)'
+        default=None,
+        help='Path to CCI mappings JSON file (auto-detects Rev 5, falls back to Rev 4)'
     )
     parser.add_argument(
         '--detailed-cci',
@@ -591,15 +591,38 @@ def main():
         level_data = DEFAULT_LEVEL_DATA
         print("Using default level data")
 
-    # Load controls and CCI data
-    controls_path = script_dir / args.controls if not Path(args.controls).is_absolute() else Path(args.controls)
-    cci_path = script_dir / args.cci if not Path(args.cci).is_absolute() else Path(args.cci)
+    # Load controls and CCI data with Rev 5 -> Rev 4 fallback
+    def find_data_file(user_path, rev5_name, rev4_name):
+        """Find data file: use user path if provided, else try Rev 5, then Rev 4."""
+        if user_path:
+            path = Path(user_path) if Path(user_path).is_absolute() else script_dir / user_path
+            if path.exists():
+                return path, None
+            else:
+                raise FileNotFoundError(f"Specified file not found: {path}")
 
-    print(f"Loading controls from {controls_path}...")
+        # Try Rev 5 first
+        rev5_path = script_dir / rev5_name
+        if rev5_path.exists():
+            return rev5_path, "Rev 5"
+
+        # Fall back to Rev 4
+        rev4_path = script_dir / rev4_name
+        if rev4_path.exists():
+            return rev4_path, "Rev 4 (fallback)"
+
+        raise FileNotFoundError(f"No data files found. Looked for {rev5_name} and {rev4_name}")
+
+    controls_path, controls_rev = find_data_file(args.controls, 'r5controls.json', 'r4controls.json')
+    cci_path, cci_rev = find_data_file(args.cci, 'rev5cci.json', 'rev4cci.json')
+
+    rev_info = controls_rev or "custom"
+    print(f"Loading controls from {controls_path} ({rev_info})...")
     controls_lookup = load_controls_data(str(controls_path))
     print(f"Loaded {len(controls_lookup)} controls")
 
-    print(f"Loading CCI mappings from {cci_path}...")
+    rev_info = cci_rev or "custom"
+    print(f"Loading CCI mappings from {cci_path} ({rev_info})...")
     cci_lookup = load_cci_data(str(cci_path))
     print(f"Loaded CCIs for {len(cci_lookup)} controls")
 

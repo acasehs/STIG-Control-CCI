@@ -99,9 +99,11 @@ python generate_level_sheets.py --input level_data.json --detailed-cci
 # Custom output path
 python generate_level_sheets.py --output my_report.xlsx
 
-# Use Rev 4 data instead of Rev 5
+# Explicitly use Rev 4 data (auto-detects Rev 5 first, falls back to Rev 4)
 python generate_level_sheets.py --controls r4controls.json --cci rev4cci.json
 ```
+
+**Auto-detection**: By default, the script looks for Rev 5 files first (`r5controls.json`, `rev5cci.json`). If not found, it automatically falls back to Rev 4 files (`r4controls.json`, `rev4cci.json`).
 
 ### Dependencies
 - Python 3.7+
