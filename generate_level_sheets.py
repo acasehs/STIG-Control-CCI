@@ -195,6 +195,40 @@ def load_level_data_from_json(filepath: str) -> dict:
     return level_data
 
 
+def load_level_data_from_excel(filepath: str, sheet_name: str = None) -> dict:
+    """
+    Load level data from Excel file (.xlsx or .xls).
+
+    Expected format: Columns are level names, rows contain control IDs.
+    Example:
+        DL-1 DODIN | DL-2 MCEN | DL-3 MITSC...
+        AT-01      | AC-04     | AC-19(04)
+        AT-02      | AC-04(01) | AC-20(02)
+        ...        | ...       | ...
+
+    Args:
+        filepath: Path to Excel file
+        sheet_name: Optional sheet name to read (defaults to first sheet)
+    """
+    # Read the Excel file
+    if sheet_name:
+        df = pd.read_excel(filepath, sheet_name=sheet_name, dtype=str)
+    else:
+        df = pd.read_excel(filepath, dtype=str)
+
+    level_data = {}
+
+    for col in df.columns:
+        # Get all non-null values from the column
+        controls = df[col].dropna().tolist()
+        # Normalize each control ID to double-digit format
+        normalized_controls = [normalize_control_id(str(c).strip()) for c in controls if c and str(c).strip()]
+        # Filter out empty strings
+        level_data[col] = [c for c in normalized_controls if c]
+
+    return level_data
+
+
 def create_level_sheet(wb: Workbook, level_name: str, controls: list,
                        controls_lookup: dict, cci_lookup: dict) -> dict:
     """
@@ -507,7 +541,11 @@ def main():
     )
     parser.add_argument(
         '--input', '-i',
-        help='Input file (JSON or CSV) with level data. Uses default data if not specified.'
+        help='Input file (JSON, CSV, or Excel) with level data. Uses default data if not specified.'
+    )
+    parser.add_argument(
+        '--sheet', '-s',
+        help='Sheet name to read from Excel file (defaults to first sheet)'
     )
     parser.add_argument(
         '--output', '-o',
@@ -538,11 +576,17 @@ def main():
     # Load level data
     if args.input:
         input_path = Path(args.input)
-        if input_path.suffix.lower() == '.csv':
+        suffix = input_path.suffix.lower()
+        if suffix == '.csv':
             level_data = load_level_data_from_csv(str(input_path))
+            print(f"Loaded level data from CSV: {args.input}")
+        elif suffix in ['.xlsx', '.xls']:
+            level_data = load_level_data_from_excel(str(input_path), args.sheet)
+            sheet_info = f" (sheet: {args.sheet})" if args.sheet else " (first sheet)"
+            print(f"Loaded level data from Excel: {args.input}{sheet_info}")
         else:
             level_data = load_level_data_from_json(str(input_path))
-        print(f"Loaded level data from {args.input}")
+            print(f"Loaded level data from JSON: {args.input}")
     else:
         level_data = DEFAULT_LEVEL_DATA
         print("Using default level data")

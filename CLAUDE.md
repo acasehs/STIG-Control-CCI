@@ -87,6 +87,12 @@ python generate_level_sheets.py
 # With custom level data JSON
 python generate_level_sheets.py --input level_data.json
 
+# With Excel input file (reads first sheet by default)
+python generate_level_sheets.py --input my_levels.xlsx
+
+# With Excel input file specifying sheet name
+python generate_level_sheets.py --input my_levels.xlsx --sheet "Sheet1"
+
 # With detailed CCI breakdown sheets
 python generate_level_sheets.py --input level_data.json --detailed-cci
 
@@ -105,16 +111,25 @@ python generate_level_sheets.py --controls r4controls.json --cci rev4cci.json
 Install: `pip install pandas openpyxl`
 
 ### Input Formats
-The script accepts level data in two formats:
+The script accepts level data in three formats:
 
-1. **JSON** (recommended):
+1. **JSON** (recommended for version control):
 ```json
 {
     "Level Name": ["CTRL-01", "CTRL-02(01)", ...]
 }
 ```
 
-2. **CSV** (columns are level names, rows are controls):
+2. **Excel (.xlsx, .xls)** - columns are level names, rows are controls:
+```
+| DL-1 DODIN | DL-2 MCEN | DL-3 MITSC... |
+|------------|-----------|---------------|
+| AT-01      | AC-04     | AC-19(04)     |
+| AT-02      | AC-04(01) | AC-20(02)     |
+```
+Use `--sheet "SheetName"` to specify which sheet to read (defaults to first).
+
+3. **CSV** (columns are level names, rows are controls):
 ```csv
 DL-1 DODIN,DL-2 MCEN,DL-3,...
 AT-01,AC-04,AC-19(04),...
