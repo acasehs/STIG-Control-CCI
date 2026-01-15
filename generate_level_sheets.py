@@ -174,13 +174,25 @@ def load_cci_data(filepath: str) -> dict:
 
 def get_control_family(control_id: str) -> str:
     """Extract control family from control identifier."""
-    match = re.match(r'^([A-Z]{2})-', control_id)
+    if not control_id or not control_id.strip():
+        return "Unknown"
+    match = re.match(r'^([A-Z]{2,3})-', control_id.strip().upper())
     return match.group(1) if match else "Unknown"
+
+
+def validate_control_id(control_id: str) -> bool:
+    """Check if a string looks like a valid control ID."""
+    if not control_id or not control_id.strip():
+        return False
+    # Valid patterns: AC-01, AC-01(01), AC-1, etc.
+    pattern = r'^[A-Z]{2,3}-\d+(\(\d+\))?$'
+    return bool(re.match(pattern, control_id.strip().upper()))
 
 
 def get_family_name(family_code: str) -> str:
     """Get full family name from family code."""
     family_names = {
+        # NIST 800-53 Rev 5 Families
         'AC': 'Access Control',
         'AT': 'Awareness and Training',
         'AU': 'Audit and Accountability',
@@ -195,13 +207,23 @@ def get_family_name(family_code: str) -> str:
         'PL': 'Planning',
         'PM': 'Program Management',
         'PS': 'Personnel Security',
-        'PT': 'Personally Identifiable Information Processing and Transparency',
+        'PT': 'PII Processing and Transparency',
         'RA': 'Risk Assessment',
         'SA': 'System and Services Acquisition',
         'SC': 'System and Communications Protection',
         'SI': 'System and Information Integrity',
         'SR': 'Supply Chain Risk Management',
-        'AP': 'Authorization and Permissions'  # Custom if exists
+        # Privacy Controls (Appendix J)
+        'AP': 'Authority and Purpose',
+        'AR': 'Accountability, Audit, and Risk Management',
+        'DI': 'Data Quality and Integrity',
+        'DM': 'Data Minimization and Retention',
+        'IP': 'Individual Participation and Redress',
+        'SE': 'Security',
+        'TR': 'Transparency',
+        'UL': 'Use Limitation',
+        # Other
+        'Unknown': 'Unknown/Invalid'
     }
     return family_names.get(family_code, family_code)
 
@@ -254,14 +276,35 @@ def load_level_data_from_excel(filepath: str, sheet_name: str = None) -> dict:
         df = pd.read_excel(filepath, dtype=str)
 
     level_data = {}
+    invalid_entries = []
 
     for col in df.columns:
         # Get all non-null values from the column
         controls = df[col].dropna().tolist()
-        # Normalize each control ID to double-digit format
-        normalized_controls = [normalize_control_id(str(c).strip()) for c in controls if c and str(c).strip()]
-        # Filter out empty strings
-        level_data[col] = [c for c in normalized_controls if c]
+        valid_controls = []
+
+        for c in controls:
+            if not c or not str(c).strip():
+                continue
+            normalized = normalize_control_id(str(c).strip())
+            if normalized:
+                if validate_control_id(normalized):
+                    valid_controls.append(normalized)
+                else:
+                    # Still include it but warn
+                    invalid_entries.append((col, str(c).strip(), normalized))
+                    valid_controls.append(normalized)
+
+        level_data[col] = valid_controls
+
+    # Warn about potentially invalid entries
+    if invalid_entries:
+        print(f"\nWarning: {len(invalid_entries)} entries don't match standard control ID format:")
+        for col, original, normalized in invalid_entries[:10]:  # Show first 10
+            print(f"  [{col}] '{original}' -> '{normalized}'")
+        if len(invalid_entries) > 10:
+            print(f"  ... and {len(invalid_entries) - 10} more")
+        print()
 
     return level_data
 
@@ -586,8 +629,8 @@ def main():
     )
     parser.add_argument(
         '--output', '-o',
-        default='STIG_Control_Level_Reference.xlsx',
-        help='Output Excel file path (default: STIG_Control_Level_Reference.xlsx)'
+        default=None,
+        help='Output Excel file path (default: <input_name>_CCI_Breakdown.xlsx)'
     )
     parser.add_argument(
         '--controls', '-c',
@@ -642,6 +685,17 @@ def main():
     else:
         level_data = DEFAULT_LEVEL_DATA
         print("Using default level data")
+
+    # Determine output file name (auto-generate from input if not specified)
+    if args.output:
+        output_file = args.output
+    elif input_file:
+        # Name output based on input file: "myfile.xlsx" -> "myfile_CCI_Breakdown.xlsx"
+        input_path = Path(input_file)
+        output_file = str(input_path.parent / f"{input_path.stem}_CCI_Breakdown.xlsx")
+    else:
+        # Default when using embedded data
+        output_file = "STIG_Control_Level_Reference.xlsx"
 
     # Load controls and CCI data with Rev 5 -> Rev 4 fallback
     def find_data_file(user_path, rev5_name, rev4_name):
@@ -703,7 +757,7 @@ def main():
     create_summary_sheet(wb, all_stats, level_names)
 
     # Save workbook
-    output_path = script_dir / args.output if not Path(args.output).is_absolute() else Path(args.output)
+    output_path = Path(output_file) if Path(output_file).is_absolute() else script_dir / output_file
     wb.save(str(output_path))
     print(f"\nWorkbook saved to {output_path}")
 
