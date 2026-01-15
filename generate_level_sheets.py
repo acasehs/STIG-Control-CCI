@@ -174,13 +174,25 @@ def load_cci_data(filepath: str) -> dict:
 
 def get_control_family(control_id: str) -> str:
     """Extract control family from control identifier."""
-    match = re.match(r'^([A-Z]{2})-', control_id)
+    if not control_id or not control_id.strip():
+        return "Unknown"
+    match = re.match(r'^([A-Z]{2,3})-', control_id.strip().upper())
     return match.group(1) if match else "Unknown"
+
+
+def validate_control_id(control_id: str) -> bool:
+    """Check if a string looks like a valid control ID."""
+    if not control_id or not control_id.strip():
+        return False
+    # Valid patterns: AC-01, AC-01(01), AC-1, etc.
+    pattern = r'^[A-Z]{2,3}-\d+(\(\d+\))?$'
+    return bool(re.match(pattern, control_id.strip().upper()))
 
 
 def get_family_name(family_code: str) -> str:
     """Get full family name from family code."""
     family_names = {
+        # NIST 800-53 Rev 5 Families
         'AC': 'Access Control',
         'AT': 'Awareness and Training',
         'AU': 'Audit and Accountability',
@@ -195,13 +207,23 @@ def get_family_name(family_code: str) -> str:
         'PL': 'Planning',
         'PM': 'Program Management',
         'PS': 'Personnel Security',
-        'PT': 'Personally Identifiable Information Processing and Transparency',
+        'PT': 'PII Processing and Transparency',
         'RA': 'Risk Assessment',
         'SA': 'System and Services Acquisition',
         'SC': 'System and Communications Protection',
         'SI': 'System and Information Integrity',
         'SR': 'Supply Chain Risk Management',
-        'AP': 'Authorization and Permissions'  # Custom if exists
+        # Privacy Controls (Appendix J)
+        'AP': 'Authority and Purpose',
+        'AR': 'Accountability, Audit, and Risk Management',
+        'DI': 'Data Quality and Integrity',
+        'DM': 'Data Minimization and Retention',
+        'IP': 'Individual Participation and Redress',
+        'SE': 'Security',
+        'TR': 'Transparency',
+        'UL': 'Use Limitation',
+        # Other
+        'Unknown': 'Unknown/Invalid'
     }
     return family_names.get(family_code, family_code)
 
@@ -254,14 +276,35 @@ def load_level_data_from_excel(filepath: str, sheet_name: str = None) -> dict:
         df = pd.read_excel(filepath, dtype=str)
 
     level_data = {}
+    invalid_entries = []
 
     for col in df.columns:
         # Get all non-null values from the column
         controls = df[col].dropna().tolist()
-        # Normalize each control ID to double-digit format
-        normalized_controls = [normalize_control_id(str(c).strip()) for c in controls if c and str(c).strip()]
-        # Filter out empty strings
-        level_data[col] = [c for c in normalized_controls if c]
+        valid_controls = []
+
+        for c in controls:
+            if not c or not str(c).strip():
+                continue
+            normalized = normalize_control_id(str(c).strip())
+            if normalized:
+                if validate_control_id(normalized):
+                    valid_controls.append(normalized)
+                else:
+                    # Still include it but warn
+                    invalid_entries.append((col, str(c).strip(), normalized))
+                    valid_controls.append(normalized)
+
+        level_data[col] = valid_controls
+
+    # Warn about potentially invalid entries
+    if invalid_entries:
+        print(f"\nWarning: {len(invalid_entries)} entries don't match standard control ID format:")
+        for col, original, normalized in invalid_entries[:10]:  # Show first 10
+            print(f"  [{col}] '{original}' -> '{normalized}'")
+        if len(invalid_entries) > 10:
+            print(f"  ... and {len(invalid_entries) - 10} more")
+        print()
 
     return level_data
 
@@ -300,7 +343,9 @@ def create_level_sheet(wb: Workbook, level_name: str, controls: list,
         'total_controls': 0,
         'total_ccis': 0,
         'families': defaultdict(int),
-        'family_ccis': defaultdict(int)
+        'family_ccis': defaultdict(int),
+        'unknown_controls': [],  # Track controls with Unknown family
+        'not_in_reference': []   # Track controls not found in reference data
     }
 
     # Populate data
@@ -317,6 +362,12 @@ def create_level_sheet(wb: Workbook, level_name: str, controls: list,
         # Join CCI numbers
         cci_numbers = ', '.join([c['cci_number'] for c in ccis]) if ccis else 'N/A'
         cci_count = len(ccis)
+
+        # Track problematic entries
+        if family == "Unknown":
+            stats['unknown_controls'].append(normalized_id)
+        if not control_info:
+            stats['not_in_reference'].append(normalized_id)
 
         # Update stats
         stats['total_controls'] += 1
@@ -586,8 +637,8 @@ def main():
     )
     parser.add_argument(
         '--output', '-o',
-        default='STIG_Control_Level_Reference.xlsx',
-        help='Output Excel file path (default: STIG_Control_Level_Reference.xlsx)'
+        default=None,
+        help='Output Excel file path (default: <input_name>_CCI_Breakdown.xlsx)'
     )
     parser.add_argument(
         '--controls', '-c',
@@ -605,9 +656,9 @@ def main():
         help='Generate detailed CCI sheets for each level'
     )
     parser.add_argument(
-        '--browse', '-b',
+        '--no-gui',
         action='store_true',
-        help='Open a file dialog to select the input file'
+        help='Skip file dialog and use --input or default data (for CLI/scripted usage)'
     )
 
     args = parser.parse_args()
@@ -618,8 +669,8 @@ def main():
     # Determine input file (from argument, file dialog, or default)
     input_file = args.input
 
-    # If --browse flag is set, open file dialog
-    if args.browse and not input_file:
+    # Open file dialog by default unless --input is provided or --no-gui is set
+    if not input_file and not args.no_gui:
         print("Opening file selection dialog...")
         input_file = open_file_dialog()
         if not input_file:
@@ -642,6 +693,17 @@ def main():
     else:
         level_data = DEFAULT_LEVEL_DATA
         print("Using default level data")
+
+    # Determine output file name (auto-generate from input if not specified)
+    if args.output:
+        output_file = args.output
+    elif input_file:
+        # Name output based on input file: "myfile.xlsx" -> "myfile_CCI_Breakdown.xlsx"
+        input_path = Path(input_file)
+        output_file = str(input_path.parent / f"{input_path.stem}_CCI_Breakdown.xlsx")
+    else:
+        # Default when using embedded data
+        output_file = "STIG_Control_Level_Reference.xlsx"
 
     # Load controls and CCI data with Rev 5 -> Rev 4 fallback
     def find_data_file(user_path, rev5_name, rev4_name):
@@ -703,7 +765,7 @@ def main():
     create_summary_sheet(wb, all_stats, level_names)
 
     # Save workbook
-    output_path = script_dir / args.output if not Path(args.output).is_absolute() else Path(args.output)
+    output_path = Path(output_file) if Path(output_file).is_absolute() else script_dir / output_file
     wb.save(str(output_path))
     print(f"\nWorkbook saved to {output_path}")
 
@@ -711,6 +773,11 @@ def main():
     print("\n" + "="*60)
     print("SUMMARY")
     print("="*60)
+
+    # Collect all problematic entries across levels
+    all_unknown = []
+    all_not_in_ref = []
+
     for level_name in level_names:
         stats = all_stats.get(level_name, {})
         print(f"\n{level_name}:")
@@ -719,6 +786,31 @@ def main():
         families = stats.get('families', {})
         if families:
             print(f"  Families: {', '.join(sorted(families.keys()))}")
+
+        # Collect problematic entries
+        unknown = stats.get('unknown_controls', [])
+        not_in_ref = stats.get('not_in_reference', [])
+        if unknown:
+            all_unknown.extend([(level_name, c) for c in unknown])
+        if not_in_ref:
+            all_not_in_ref.extend([(level_name, c) for c in not_in_ref])
+
+    # Show problematic entries
+    if all_unknown:
+        print("\n" + "-"*60)
+        print(f"WARNING: {len(all_unknown)} entries have 'Unknown' family (invalid format):")
+        for level, ctrl in all_unknown[:15]:
+            print(f"  [{level[:20]}] {ctrl}")
+        if len(all_unknown) > 15:
+            print(f"  ... and {len(all_unknown) - 15} more")
+
+    if all_not_in_ref:
+        print("\n" + "-"*60)
+        print(f"INFO: {len(all_not_in_ref)} controls not found in reference JSON (no name/text):")
+        for level, ctrl in all_not_in_ref[:15]:
+            print(f"  [{level[:20]}] {ctrl}")
+        if len(all_not_in_ref) > 15:
+            print(f"  ... and {len(all_not_in_ref) - 15} more")
 
 
 if __name__ == '__main__':
